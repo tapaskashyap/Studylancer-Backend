@@ -1,0 +1,180 @@
+version: '3'
+services:
+
+  #PHP Laravel App Service
+  laravel-app:
+    build:
+      context: .
+      dockerfile: laravel-app.dockerfile
+    image: laravel-app
+    container_name: laravel-app
+    restart: unless-stopped
+    tty: true
+    depends_on:
+      - mysql
+      - redis
+      - meilisearch
+    environment:
+      SERVICE_NAME: laravel-app
+      SERVICE_TAGS: dev
+    working_dir: /var/www
+    volumes:
+      - ./laravel-app:/var/www
+      - ./php/local.ini:/usr/local/etc/php/conf.d/local.ini
+    networks:
+      - app-network
+
+  #PHP Laravel Queue Service
+  laravel-queue:
+    image: laravel-app
+    container_name: laravel-queue
+    restart: unless-stopped
+    tty: true
+    depends_on:
+      - laravel-app
+      - redis
+      - mysql
+      - meilisearch
+    environment:
+      SERVICE_NAME: laravel-queue
+      SERVICE_TAGS: dev
+    working_dir: /var/www
+    volumes:
+      - ./laravel-app:/var/www
+      - ./php/local.ini:/usr/local/etc/php/conf.d/local.ini
+    networks:
+      - app-network
+    command: php artisan queue:work redis --verbose
+
+  #Nginx Service
+  nginx:
+    image: nginx:mainline-alpine
+    container_name: nginx
+    restart: unless-stopped
+    tty: true
+    depends_on:
+      - laravel-app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./laravel-app:/var/www
+      - ./nginx/conf.d/:/etc/nginx/conf.d/
+      - ./certbot/etc:/etc/letsencrypt
+      - ./certbot/var:/var/www/certbot
+      - ./dhparam:/etc/ssl/certs
+    networks:
+      - app-network
+
+  #PhpMyAdmin
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: phpmyadmin
+    restart: unless-stopped
+    tty: true
+    depends_on:
+      - mysql
+    ports:
+      - "8080:80"
+    environment:
+      PMA_HOST: mysql
+    networks:
+      - app-network
+
+  #MySQL Service
+  mysql:
+    image: mysql:latest
+    container_name: mysql
+    restart: unless-stopped
+    tty: true
+    environment:
+      MYSQL_DATABASE: studylancer
+      MYSQL_ROOT_PASSWORD: password
+      SERVICE_TAGS: dev
+      SERVICE_NAME: mysql
+    volumes:
+      - dbdata:/var/lib/mysql/
+      - ./mysql/conf/my.cnf:/etc/mysql/my.cnf
+      - ./mysql/mysql-files:/var/lib/mysql-files/
+    networks:
+      - app-network
+    #ports:
+    #  - "3306:3306"
+
+  #Redis Service
+  redis:
+    image: redis
+    container_name: redis
+    restart: unless-stopped
+    tty: true
+    volumes:
+      - ./redis/data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - app-network
+
+  #Meilisearch
+  meilisearch:
+    image: getmeili/meilisearch:v1.3
+    container_name: meilisearch
+    restart: unless-stopped
+    tty: true
+    environment:
+      MEILI_MASTER_KEY: password
+    volumes:
+      - ./meilisearch:/meili_data
+    networks:
+      - app-network
+
+  # elasticsearch:
+  #   image: elasticsearch:7.8.1
+  #   container_name: elasticsearch
+  #   restart: unless-stopped
+  #   tty: true
+  #   environment:
+  #     discovery.type: single-node
+  #     xpack.security.enabled: "true"
+  #     ELASTIC_PASSWORD: password123
+  #   ports:
+  #     - 9200:9200
+  #     - 9300:9300
+  #   networks:
+  #     - app-network  
+
+  # kibana:
+  #   image: kibana:7.8.1
+  #   container_name: kibana
+  #   restart: unless-stopped
+  #   tty: true
+  #   environment:
+  #     ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+  #     ELASTICSEARCH_USERNAME: elastic
+  #     ELASTICSEARCH_PASSWORD: password123
+  #   depends_on:
+  #     - elasticsearch
+  #   ports:
+  #     - 5601:5601
+  #   networks:
+  #     - app-network
+
+  # dockerswarm-visualizer:
+  #   image: dockersamples/visualizer
+  #   container_name: dockerswarm-visualizer
+  #   restart: unless-stopped
+  #   tty: true
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #   ports:
+  #     - 5000:8080
+  #   networks:
+  #     - app-network
+
+#Docker Networks
+networks:
+  app-network:
+    driver: bridge
+
+#Docker Volumes
+volumes:
+  dbdata:
+    driver: local
